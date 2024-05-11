@@ -5,7 +5,6 @@ const AutoHashMap = std.hash_map.AutoHashMap;
 
 const segment = struct {
     marker: u8,
-    length: u16 = 0,
 };
 
 pub fn main() !void {
@@ -19,27 +18,45 @@ pub fn main() !void {
         if (deinit_status == .leak) std.debug.print("mem leak", .{});
     }
 
-    // const segment_map: type = try initSegmentHash(allocator);
-    // _ = segment_map;
-
     const segment_parser: type = *const fn (file: File, allocator: std.mem.Allocator) anyerror!void;
     var segment_map = AutoHashMap(segment, ?segment_parser).init(allocator);
     defer segment_map.deinit();
 
-    std.debug.print("type: {}\n", .{@TypeOf(segment_map)});
+    // Start of Image
     try segment_map.put(segment{
         .marker = 0xD8,
     }, null);
 
-    // const soi: bool = try validateSOI(file, allocator);
-    // std.debug.assert(soi);
+    // Application 0
+    try segment_map.put(segment{
+        .marker = 0xE8,
+    }, null);
 
-    // try readAPP0(file, allocator);
+    // Quantization Table
+    try segment_map.put(segment{
+        .marker = 0xDB,
+    }, null);
+
+    // Start of Frame
+    try segment_map.put(segment{
+        .marker = 0xC0,
+    }, null);
+
+    // Huffman Table
+    try segment_map.put(segment{
+        .marker = 0xC4,
+    }, null);
+
+    // Start of Scan
+    try segment_map.put(segment{
+        .marker = 0xDA,
+    }, null);
+
+    // End of Image
+    try segment_map.put(segment{
+        .marker = 0xD9,
+    }, null);
 }
-
-// fn initSegmentHash(allocator: std.mem.Allocator) !type {
-//     return anytype;
-// }
 
 fn hexSliceToInt(bytes: []u8) u64 {
     var ret: u64 = 0;
