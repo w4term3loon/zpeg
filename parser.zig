@@ -1,6 +1,12 @@
 const std = @import("std");
-const expect = @import("std").testing.expect;
-const File = @import("std").fs.File;
+const expect = std.testing.expect;
+const File = std.fs.File;
+const AutoHashMap = std.hash_map.AutoHashMap;
+
+const segment = struct {
+    marker: u8,
+    length: u16 = 0,
+};
 
 pub fn main() !void {
     const file = try std.fs.cwd().openFile("cat.jpeg", .{});
@@ -13,11 +19,27 @@ pub fn main() !void {
         if (deinit_status == .leak) std.debug.print("mem leak", .{});
     }
 
-    const soi: bool = try validateSOI(file, allocator);
-    std.debug.assert(soi);
+    // const segment_map: type = try initSegmentHash(allocator);
+    // _ = segment_map;
 
-    try readAPP0(file, allocator);
+    const segment_parser: type = *const fn (file: File, allocator: std.mem.Allocator) anyerror!void;
+    var segment_map = AutoHashMap(segment, ?segment_parser).init(allocator);
+    defer segment_map.deinit();
+
+    std.debug.print("type: {}\n", .{@TypeOf(segment_map)});
+    try segment_map.put(segment{
+        .marker = 0xD8,
+    }, null);
+
+    // const soi: bool = try validateSOI(file, allocator);
+    // std.debug.assert(soi);
+
+    // try readAPP0(file, allocator);
 }
+
+// fn initSegmentHash(allocator: std.mem.Allocator) !type {
+//     return anytype;
+// }
 
 fn hexSliceToInt(bytes: []u8) u64 {
     var ret: u64 = 0;
