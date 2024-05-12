@@ -3,10 +3,6 @@ const expect = std.testing.expect;
 const File = std.fs.File;
 const AutoHashMap = std.hash_map.AutoHashMap;
 
-const segment = struct {
-    marker: u8,
-};
-
 pub fn main() !void {
     const file = try std.fs.cwd().openFile("cat.jpeg", .{});
     defer file.close();
@@ -19,43 +15,82 @@ pub fn main() !void {
     }
 
     const segment_parser: type = *const fn (file: File, allocator: std.mem.Allocator) anyerror!void;
-    var segment_map = AutoHashMap(segment, ?segment_parser).init(allocator);
+    var segment_map = AutoHashMap(u8, ?segment_parser).init(allocator);
     defer segment_map.deinit();
 
     // Start of Image
-    try segment_map.put(segment{
-        .marker = 0xD8,
-    }, null);
+    try segment_map.put(0xD8, startOfImage);
 
     // Application 0
-    try segment_map.put(segment{
-        .marker = 0xE8,
-    }, null);
+    try segment_map.put(0xE8, null);
 
     // Quantization Table
-    try segment_map.put(segment{
-        .marker = 0xDB,
-    }, null);
+    try segment_map.put(0xDB, quantizationTable);
 
     // Start of Frame
-    try segment_map.put(segment{
-        .marker = 0xC0,
-    }, null);
+    try segment_map.put(0xC0, null);
 
     // Huffman Table
-    try segment_map.put(segment{
-        .marker = 0xC4,
-    }, null);
+    try segment_map.put(0xC4, null);
 
     // Start of Scan
-    try segment_map.put(segment{
-        .marker = 0xDA,
-    }, null);
+    try segment_map.put(0xDA, null);
 
     // End of Image
-    try segment_map.put(segment{
-        .marker = 0xD9,
-    }, null);
+    try segment_map.put(0xD9, null);
+
+    var byte: [2]u8 = undefined;
+    var Parser: segment_parser = undefined;
+
+    _ = try file.read(&byte);
+    std.debug.assert(byte[0] == 0xFF);
+
+    Parser = segment_map.get(byte[1]).? orelse markerNotFound;
+    _ = try Parser(file, allocator);
+
+    // second etap
+    _ = try file.read(&byte);
+    std.debug.assert(byte[0] == 0xFF);
+
+    Parser = segment_map.get(byte[1]).? orelse markerNotFound;
+    _ = try Parser(file, allocator);
+}
+
+fn markerNotFound(file: File, allocator: std.mem.Allocator) anyerror!void {
+    std.debug.print("WARNING: unknown marker found\n", .{});
+
+    _ = file;
+    _ = allocator;
+}
+
+fn startOfImage(file: File, allocator: std.mem.Allocator) anyerror!void {
+    std.debug.print("INFO: Start of Image detected\n", .{});
+
+    _ = file;
+    _ = allocator;
+}
+
+fn quantizationTable(file: File, allocator: std.mem.Allocator) anyerror!void {
+    _ = allocator;
+    std.debug.print("INFO: Quantization Table detected\n", .{});
+
+    var length: [2]u8 = undefined;
+    _ = try file.read(&length);
+    std.debug.print("INFO: length: {d}\n", .{hexSliceToInt(&length)});
+
+    var destination: [1]u8 = undefined;
+    _ = try file.read(&destination);
+    std.debug.print("INFO: destination: {d}", .{destination[0]});
+
+    if (destination[0] == 0) {
+        std.debug.print(" (luminance)\n", .{});
+    } else {
+        std.debug.print(" (chrominance)\n", .{});
+    }
+
+    var table: [64]u8 = undefined;
+    _ = try file.read(&table);
+    std.debug.print("INFO: table: {any}\n", .{table});
 }
 
 fn hexSliceToInt(bytes: []u8) u64 {
