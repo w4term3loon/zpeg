@@ -28,7 +28,7 @@ pub fn main() !void {
     try segment_map.put(0xDB, quantizationTable);
 
     // Start of Frame
-    try segment_map.put(0xC0, null);
+    try segment_map.put(0xC0, startOfFrame);
 
     // Huffman Table
     try segment_map.put(0xC4, null);
@@ -39,77 +39,106 @@ pub fn main() !void {
     // End of Image
     try segment_map.put(0xD9, null);
 
-    var byte: [2]u8 = undefined;
+    var marker: [2]u8 = undefined;
     var Parser: segment_parser = undefined;
 
-    _ = try file.read(&byte);
-    std.debug.assert(byte[0] == 0xFF);
-
-    Parser = segment_map.get(byte[1]).? orelse markerNotFound;
-    _ = try Parser(file, allocator);
-
-    // second etap
-    _ = try file.read(&byte);
-    std.debug.assert(byte[0] == 0xFF);
-
-    Parser = segment_map.get(byte[1]).? orelse markerNotFound;
-    _ = try Parser(file, allocator);
-
-    // third etap
-    _ = try file.read(&byte);
-    std.debug.assert(byte[0] == 0xFF);
-
-    Parser = segment_map.get(byte[1]).? orelse markerNotFound;
-    _ = try Parser(file, allocator);
+    while (true) {
+        _ = try file.read(&marker);
+        std.debug.assert(marker[0] == 0xFF);
+        std.debug.print("INFO: marker 0x{X} detected\n", .{marker[1]});
+        Parser = segment_map.get(marker[1]).? orelse markerNotFound;
+        _ = try Parser(file, allocator);
+        if (Parser == markerNotFound) break;
+    }
 }
 
 fn markerNotFound(file: File, allocator: std.mem.Allocator) anyerror!void {
-    std.debug.print("WARNING: unknown marker found\n", .{});
-    _ = file;
-    _ = allocator;
+    std.debug.print("WARNING: unknown marker\n", .{});
+    _ = .{ file, allocator };
 }
 
 fn startOfImage(file: File, allocator: std.mem.Allocator) anyerror!void {
-    std.debug.print("INFO: Start of Image detected in\n", .{});
-    _ = file;
-    _ = allocator;
+    std.debug.print("INFO: start of image\n", .{});
+    _ = .{ file, allocator };
 }
 
 fn quantizationTable(file: File, allocator: std.mem.Allocator) anyerror!void {
-    std.debug.print("INFO: Quantization Table detected\n", .{});
+    std.debug.print("INFO: quantization table\n", .{});
 
-    var length: [2]u8 = undefined;
-    _ = try file.read(&length);
-    std.debug.print("INFO: length: {d}\n", .{hexSliceToInt(&length)});
+    const length: u64 = try bytesAsDecimal(file, allocator, 2);
+    std.debug.print("INFO: length: {d}\n", .{length});
 
     var destination: [1]u8 = undefined;
     _ = try file.read(&destination);
     std.debug.print("INFO: destination: {d}", .{destination[0]});
 
+    // TODO: prettify
     if (destination[0] == 0) {
         std.debug.print(" (luminance)\n", .{});
     } else {
         std.debug.print(" (chrominance)\n", .{});
     }
 
-    const body: u64 = hexSliceToInt(&length) - destination.len - length.len;
+    const body: u64 = length - destination.len - 2; //< length of length
     const table: []u8 = try allocator.alloc(u8, body);
     defer allocator.free(table);
-    std.debug.print("INFO: reading {d}\n", .{body});
 
     _ = try file.read(table);
     std.debug.print("INFO: table: {any}\n", .{table});
+}
+
+fn startOfFrame(file: File, allocator: std.mem.Allocator) anyerror!void {
+    std.debug.print("INFO: start of frame\n", .{});
+
+    const length: u64 = try bytesAsDecimal(file, allocator, 2);
+    std.debug.print("INFO: length {d}\n", .{length});
+
+    const precision: u64 = try bytesAsDecimal(file, allocator, 1);
+    std.debug.print("INFO: sample precision {d}\n", .{precision});
+
+    const image_height: u64 = try bytesAsDecimal(file, allocator, 2);
+    const image_width: u64 = try bytesAsDecimal(file, allocator, 2);
+    std.debug.print("INFO: image dimensions {d}x{d}\n", .{ image_width, image_height });
+
+    const components: u64 = try bytesAsDecimal(file, allocator, 1);
+    std.debug.print("INFO: number of components {d}\n", .{components});
+
+    for (0..components) |component| {
+        const identifier: u64 = try bytesAsDecimal(file, allocator, 1);
+        std.debug.print("INFO: component {d} id {d}\n", .{ component, identifier });
+
+        // TODO: further break down
+        var sampling: [1]u8 = undefined;
+        _ = try file.read(&sampling);
+        std.debug.print("INFO: component {d} sampling {d}\n", .{ component, sampling[0] });
+
+        const qtable_id: u64 = try bytesAsDecimal(file, allocator, 1);
+        std.debug.print("INFO: component {d} qtable_id {d}\n", .{ component, qtable_id });
+    }
+}
+
+fn bytesAsDecimal(file: File, allocator: std.mem.Allocator, sz: usize) !u64 {
+    const length: []u8 = try readBytes(file, allocator, sz);
+    defer allocator.free(length);
+    return hexSliceToInt(length);
 }
 
 fn hexSliceToInt(bytes: []u8) u64 {
     var ret: u64 = 0;
     for (bytes, 0..) |byte, i| {
         const iter: u8 = @as(u8, @intCast(bytes.len - 1 - i));
-        ret += byte * std.math.pow(u8, 0xFF, iter);
+        ret += byte * std.math.pow(u64, 0xFF, iter);
     }
     return ret;
 }
 
+fn readBytes(file: File, allocator: std.mem.Allocator, sz: usize) ![]u8 {
+    const chunk: []u8 = try allocator.alloc(u8, sz);
+    _ = try file.read(chunk);
+    return chunk;
+}
+
+// archive
 fn readAPP0(file: File, allocator: std.mem.Allocator) !void {
     const marker: []u8 = try readBytes(file, allocator, 2);
     defer allocator.free(marker);
@@ -128,11 +157,4 @@ fn readAPP0(file: File, allocator: std.mem.Allocator) !void {
     const density_y: []u8 = app0[10..12];
     std.debug.print("density {d}x{d}\n", .{ hexSliceToInt(density_x), hexSliceToInt(density_y) });
     std.debug.print("thumbnail {d}x{d}\n", .{ app0[12], app0[13] });
-}
-
-fn readBytes(file: File, allocator: std.mem.Allocator, sz: usize) ![]u8 {
-    const chunk: []u8 = try allocator.alloc(u8, sz);
-    const ret: usize = try file.read(chunk);
-    _ = ret;
-    return chunk;
 }

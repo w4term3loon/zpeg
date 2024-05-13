@@ -30,16 +30,16 @@ Some segments also have payload after the marker with a length specified in the 
 Here I would like to go deep into the structure of individual segments that can be found in JPEG files.
 
 #### Start of Image
-name: SOI
-marker: 0xFF 0xD8
-payload: -
-description: indicates the start of the image.
+* name: SOI
+* marker: 0xFF 0xD8
+* payload: -
+* description: indicates the start of the image.
 
 #### Quantization Table
-name: DQT
-marker: 0xFF 0xDB
-payload: variable
-description: defines quantization tables for the image.
+* name: DQT
+* marker: 0xFF 0xDB
+* payload: variable
+* description: defines quantization tables for the image.
 
 Source: https://en.wikipedia.org/wiki/JPEG_File_Interchange_Format
 
