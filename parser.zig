@@ -54,24 +54,28 @@ pub fn main() !void {
 
     Parser = segment_map.get(byte[1]).? orelse markerNotFound;
     _ = try Parser(file, allocator);
+
+    // third etap
+    _ = try file.read(&byte);
+    std.debug.assert(byte[0] == 0xFF);
+
+    Parser = segment_map.get(byte[1]).? orelse markerNotFound;
+    _ = try Parser(file, allocator);
 }
 
 fn markerNotFound(file: File, allocator: std.mem.Allocator) anyerror!void {
     std.debug.print("WARNING: unknown marker found\n", .{});
-
     _ = file;
     _ = allocator;
 }
 
 fn startOfImage(file: File, allocator: std.mem.Allocator) anyerror!void {
-    std.debug.print("INFO: Start of Image detected\n", .{});
-
+    std.debug.print("INFO: Start of Image detected in\n", .{});
     _ = file;
     _ = allocator;
 }
 
 fn quantizationTable(file: File, allocator: std.mem.Allocator) anyerror!void {
-    _ = allocator;
     std.debug.print("INFO: Quantization Table detected\n", .{});
 
     var length: [2]u8 = undefined;
@@ -88,8 +92,12 @@ fn quantizationTable(file: File, allocator: std.mem.Allocator) anyerror!void {
         std.debug.print(" (chrominance)\n", .{});
     }
 
-    var table: [64]u8 = undefined;
-    _ = try file.read(&table);
+    const body: u64 = hexSliceToInt(&length) - destination.len - length.len;
+    const table: []u8 = try allocator.alloc(u8, body);
+    defer allocator.free(table);
+    std.debug.print("INFO: reading {d}\n", .{body});
+
+    _ = try file.read(table);
     std.debug.print("INFO: table: {any}\n", .{table});
 }
 
@@ -120,12 +128,6 @@ fn readAPP0(file: File, allocator: std.mem.Allocator) !void {
     const density_y: []u8 = app0[10..12];
     std.debug.print("density {d}x{d}\n", .{ hexSliceToInt(density_x), hexSliceToInt(density_y) });
     std.debug.print("thumbnail {d}x{d}\n", .{ app0[12], app0[13] });
-}
-
-fn validateSOI(file: File, allocator: std.mem.Allocator) !bool {
-    const soi: []u8 = try readBytes(file, allocator, 2);
-    defer allocator.free(soi);
-    return (soi[0] == 0xFF) and (soi[1] == 0xD8);
 }
 
 fn readBytes(file: File, allocator: std.mem.Allocator, sz: usize) ![]u8 {
