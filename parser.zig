@@ -31,24 +31,34 @@ pub fn main() !void {
     try segment_map.put(0xC0, startOfFrame);
 
     // Huffman Table
-    try segment_map.put(0xC4, null);
+    try segment_map.put(0xC4, huffmanTable);
 
     // Start of Scan
-    try segment_map.put(0xDA, null);
+    try segment_map.put(0xDA, startOfScan);
 
     // End of Image
-    try segment_map.put(0xD9, null);
+    try segment_map.put(0xD9, endOfImage);
 
     var marker: [2]u8 = undefined;
     var Parser: segment_parser = undefined;
 
     while (true) {
         _ = try file.read(&marker);
-        std.debug.assert(marker[0] == 0xFF);
         std.debug.print("INFO: marker 0x{X} detected\n", .{marker[1]});
         Parser = segment_map.get(marker[1]).? orelse markerNotFound;
-        _ = try Parser(file, allocator);
-        if (Parser == markerNotFound) break;
+        try Parser(file, allocator);
+        if (Parser == startOfScan) {
+            std.debug.print("INFO: skipping image data TODO\n", .{});
+            var lagger: [1]u8 = undefined;
+            var leader: [1]u8 = undefined;
+            while (!(lagger[0] == 0xFF and leader[0] != 0xD9)) {
+                lagger = leader;
+                _ = try file.read(&leader);
+            }
+
+            try endOfImage(file, allocator);
+            break;
+        }
     }
 }
 
@@ -107,14 +117,44 @@ fn startOfFrame(file: File, allocator: std.mem.Allocator) anyerror!void {
         const identifier: u64 = try bytesAsDecimal(file, allocator, 1);
         std.debug.print("INFO: component {d} id {d}\n", .{ component, identifier });
 
-        // TODO: further break down
+        // The 4 high-order bits specify the horizontal sampling for the component.
+        // The 4 low-order bits specify the vertical sampling.
+        // Either value can be 1, 2, 3, or 4 according to the standard.
         var sampling: [1]u8 = undefined;
         _ = try file.read(&sampling);
-        std.debug.print("INFO: component {d} sampling {d}\n", .{ component, sampling[0] });
+        const format = .{ component, sampling[0] & 0x0F, sampling[0] >> 4 };
+        std.debug.print("INFO: component {d} sampling {d}x{d}(hxv)\n", format);
 
         const qtable_id: u64 = try bytesAsDecimal(file, allocator, 1);
         std.debug.print("INFO: component {d} qtable_id {d}\n", .{ component, qtable_id });
     }
+}
+
+fn huffmanTable(file: File, allocator: std.mem.Allocator) anyerror!void {
+    std.debug.print("INFO: huffman table\n", .{});
+
+    const length: u64 = try bytesAsDecimal(file, allocator, 2);
+    std.debug.print("INFO: length: {d}\n", .{length});
+
+    const table: []u8 = try readBytes(file, allocator, length - 2);
+    defer allocator.free(table);
+    std.debug.print("INFO: table skipped: TODO\n", .{});
+}
+
+fn startOfScan(file: File, allocator: std.mem.Allocator) anyerror!void {
+    std.debug.print("INFO: start of scan\n", .{});
+
+    const length: u64 = try bytesAsDecimal(file, allocator, 2);
+    std.debug.print("INFO: length: {d}\n", .{length});
+
+    const data: []u8 = try readBytes(file, allocator, length - 2);
+    defer allocator.free(data);
+    std.debug.print("INFO: data skipped: TODO\n", .{});
+}
+
+fn endOfImage(file: File, allocator: std.mem.Allocator) anyerror!void {
+    std.debug.print("INFO: end of image\n", .{});
+    _ = .{ file, allocator };
 }
 
 fn bytesAsDecimal(file: File, allocator: std.mem.Allocator, sz: usize) !u64 {
